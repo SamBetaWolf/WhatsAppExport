@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>WhatsApp Chat Converter</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
+</head>
+<body>
+  <div id="app">
+    <!-- Pantalla de Inicio -->
+    <div id="home-screen" class="screen active">
+      <header class="app-header">
+        <h1>WhatsApp → Chat</h1>
+        <button id="theme-toggle" class="icon-btn" title="Cambiar tema">🌙</button>
+      </header>
+
+      <main class="home-main">
+        <div class="paste-area">
+          <label for="chat-input">Pega aquí la conversación exportada de WhatsApp:</label>
+          <textarea id="chat-input" placeholder="[20/10, 10:19] Calvo: Hola&#10;[20/10, 10:20] Sam: Qué tal..."></textarea>
+          <button id="convert-btn" class="primary-btn">Convertir chat</button>
+        </div>
+
+        <div id="saved-chats-section" class="saved-section hidden">
+          <h2>Chats guardados</h2>
+          <div id="saved-chats-list"></div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Pantalla del Chat -->
+    <div id="chat-screen" class="screen">
+      <header class="chat-header">
+        <button id="back-btn" class="icon-btn">←</button>
+        <div class="chat-header-info">
+          <div id="chat-title" class="chat-title">Chat</div>
+          <div id="chat-subtitle" class="chat-subtitle"></div>
+        </div>
+        <div class="header-actions">
+          <button id="search-btn" class="icon-btn" title="Buscar">🔍</button>
+          <button id="menu-btn" class="icon-btn" title="Opciones">⋮</button>
+        </div>
+      </header>
+
+      <!-- Barra de búsqueda -->
+      <div id="search-bar" class="search-bar hidden">
+        <input type="text" id="search-input" placeholder="Buscar mensajes...">
+        <button id="close-search" class="icon-btn">✕</button>
+      </div>
+
+      <div id="messages-container" class="messages-container">
+        <!-- Los mensajes se insertan aquí -->
+      </div>
+
+      <!-- Menú de opciones -->
+      <div id="options-menu" class="options-menu hidden">
+        <button id="change-me-btn">Cambiar quién soy yo</button>
+        <button id="rename-participants-btn">Renombrar participantes</button>
+        <button id="save-chat-btn">Guardar este chat</button>
+        <button id="export-text-btn">Copiar texto original</button>
+      </div>
+    </div>
+
+    <!-- Modal: Cambiar quién soy yo -->
+    <div id="me-modal" class="modal hidden">
+      <div class="modal-content">
+        <h3>¿Quién eres tú en este chat?</h3>
+        <div id="me-options" class="me-options"></div>
+        <button id="close-me-modal" class="secondary-btn">Cerrar</button>
+      </div>
+    </div>
+
+    <!-- Modal: Renombrar participantes -->
+    <div id="rename-modal" class="modal hidden">
+      <div class="modal-content">
+        <h3>Renombrar participantes</h3>
+        <div id="rename-list" class="rename-list"></div>
+        <div class="modal-actions">
+          <button id="save-renames-btn" class="primary-btn">Guardar</button>
+          <button id="close-rename-modal" class="secondary-btn">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

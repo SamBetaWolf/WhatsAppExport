@@ -374,40 +374,45 @@ function initEvents() {
     if (!file) return;
 
     const name = file.name.toLowerCase();
-    const isZip = name.endsWith(".zip") || file.type === "application/zip" || file.type === "application/x-zip-compressed";
-    const isTxt = name.endsWith(".txt") || file.type === "text/plain";
-
-    if (!isZip && !isTxt) {
-      alert("Por favor sube un archivo .txt o el .zip que exporta WhatsApp");
-      e.target.value = "";
-      return;
-    }
+    const looksLikeZip = name.endsWith(".zip") || 
+                         file.type.includes("zip") || 
+                         file.type === "application/octet-stream";
 
     try {
       let text = "";
 
-      if (isZip) {
-        // Descomprimir el ZIP en el navegador
-        const zip = await JSZip.loadAsync(file);
-        
-        // Buscar el primer archivo .txt dentro del ZIP
-        let txtFile = null;
-        zip.forEach((relativePath, zipEntry) => {
-          if (!txtFile && relativePath.toLowerCase().endsWith(".txt") && !zipEntry.dir) {
-            txtFile = zipEntry;
+      if (looksLikeZip) {
+        // Intentamos descomprimir como ZIP
+        try {
+          const zip = await JSZip.loadAsync(file);
+          
+          let txtFile = null;
+          zip.forEach((relativePath, zipEntry) => {
+            if (!txtFile && relativePath.toLowerCase().endsWith(".txt") && !zipEntry.dir) {
+              txtFile = zipEntry;
+            }
+          });
+
+          if (!txtFile) {
+            alert("No se encontró ningún archivo .txt dentro del ZIP");
+            e.target.value = "";
+            return;
           }
-        });
 
-        if (!txtFile) {
-          alert("No se encontró ningún archivo .txt dentro del ZIP");
-          e.target.value = "";
-          return;
+          text = await txtFile.async("string");
+        } catch (zipErr) {
+          // Si falla el ZIP, intentamos leerlo como texto plano
+          text = await file.text();
         }
-
-        text = await txtFile.async("string");
       } else {
-        // Archivo .txt normal
+        // Archivo de texto normal
         text = await file.text();
+      }
+
+      if (!text || !text.trim()) {
+        alert("El archivo está vacío o no se pudo leer");
+        e.target.value = "";
+        return;
       }
 
       $("chat-input").value = text;
@@ -415,7 +420,7 @@ function initEvents() {
 
     } catch (err) {
       console.error(err);
-      alert("Error al leer el archivo. Asegúrate de que es un ZIP o TXT válido de WhatsApp.");
+      alert("Error al leer el archivo. Prueba con el .txt o el .zip que exporta WhatsApp.");
     }
 
     // Reset para poder subir el mismo archivo otra vez

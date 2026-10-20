@@ -19,7 +19,17 @@
       <main class="home-main">
         <div class="paste-area">
           <label for="chat-input">Pega aquí la conversación exportada de WhatsApp:</label>
-          <textarea id="chat-input" placeholder="[20/10, 10:19] Usuario1: Hola&#10;[20/10, 10:20] Usuario2: Qué tal..."></textarea>
+          <textarea id="chat-input" placeholder="[20/10, 10:19] Calvo: Hola&#10;[20/10, 10:20] Sam: Qué tal..."></textarea>
+          
+          <div class="or-divider">o</div>
+          
+          <div class="file-upload-area">
+            <label for="file-input" class="file-label">
+              📄 Subir archivo .txt
+            </label>
+            <input type="file" id="file-input" accept=".txt,text/plain" hidden>
+          </div>
+
           <button id="convert-btn" class="primary-btn">Convertir chat</button>
         </div>
 

@@ -136,11 +136,19 @@ function getMediaPlaceholder(text) {
 }
 
 // ========== Detectar participantes y "yo" ==========
+function cleanName(name) {
+  return (name || "").replace(/\u200e/g, "").replace(/\u200f/g, "").trim();
+}
+
 function analyzeParticipants(messages) {
   const counts = {};
   messages.forEach(m => {
     if (!m.isSystem && m.sender) {
-      counts[m.sender] = (counts[m.sender] || 0) + 1;
+      const name = cleanName(m.sender);
+      if (name) {
+        m.sender = name; // normalizar
+        counts[name] = (counts[name] || 0) + 1;
+      }
     }
   });
 
@@ -201,15 +209,23 @@ function renderMessages() {
 }
 
 function updateHeader() {
-  $("chat-title").textContent = state.chatTitle || "Chat";
-  
   const others = state.participants.filter(p => p !== state.me);
-  if (others.length === 0) {
-    $("chat-subtitle").textContent = state.me ? `Tú (${state.me})` : "";
-  } else if (others.length === 1) {
-    $("chat-subtitle").textContent = others[0];
-  } else {
+
+  // Título principal
+  if (others.length === 1) {
+    // Chat 1 a 1 → mostrar el nombre de la otra persona
+    state.chatTitle = others[0];
+    $("chat-title").textContent = others[0];
+    $("chat-subtitle").textContent = "";           // vacío para que no se repita
+  } else if (others.length > 1) {
+    // Grupo
+    state.chatTitle = state.chatTitle === "Chat" || state.chatTitle === "Grupo" ? "Grupo" : state.chatTitle;
+    $("chat-title").textContent = state.chatTitle;
     $("chat-subtitle").textContent = others.slice(0, 3).join(", ") + (others.length > 3 ? "..." : "");
+  } else {
+    // Solo hay un participante (o ninguno)
+    $("chat-title").textContent = state.me || "Chat";
+    $("chat-subtitle").textContent = state.me ? "Tú" : "";
   }
 }
 
@@ -318,11 +334,10 @@ function initEvents() {
     applyTheme();
   };
 
-  // Convertir
-  $("convert-btn").onclick = () => {
-    const text = $("chat-input").value.trim();
-    if (!text) {
-      alert("Pega primero una conversación de WhatsApp");
+  // Función común para procesar el texto
+  function processChatText(text) {
+    if (!text || !text.trim()) {
+      alert("No se encontró texto para convertir");
       return;
     }
 
@@ -332,15 +347,7 @@ function initEvents() {
     const analysis = analyzeParticipants(state.messages);
     state.participants = analysis.participants;
     state.me = analysis.me;
-
-    // Título del chat
-    if (state.participants.length === 2) {
-      state.chatTitle = state.participants.find(p => p !== state.me) || "Chat";
-    } else if (state.participants.length > 2) {
-      state.chatTitle = "Grupo";
-    } else {
-      state.chatTitle = "Chat";
-    }
+    state.chatTitle = "Chat"; // se ajusta dentro de updateHeader()
 
     state.searchQuery = "";
     $("search-bar").classList.add("hidden");
@@ -349,6 +356,41 @@ function initEvents() {
     updateHeader();
     renderMessages();
     showScreen("chat-screen");
+  }
+
+  // Convertir desde textarea
+  $("convert-btn").onclick = () => {
+    const text = $("chat-input").value.trim();
+    if (!text) {
+      alert("Pega primero una conversación de WhatsApp o sube un archivo");
+      return;
+    }
+    processChatText(text);
+  };
+
+  // Subir archivo .txt
+  $("file-input").onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith(".txt") && file.type !== "text/plain") {
+      alert("Por favor sube un archivo de texto (.txt)");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target.result;
+      $("chat-input").value = text; // también lo ponemos en el textarea por si quiere editarlo
+      processChatText(text);
+    };
+    reader.onerror = () => {
+      alert("Error al leer el archivo");
+    };
+    reader.readAsText(file, "UTF-8");
+    
+    // Reset para poder subir el mismo archivo otra vez si quiere
+    e.target.value = "";
   };
 
   // Volver

@@ -167,6 +167,50 @@ html, body {
   border-color: transparent;
 }
 
+.or-divider {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin: 16px 0 12px;
+  position: relative;
+}
+
+.or-divider::before,
+.or-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 40%;
+  height: 1px;
+  background: var(--border);
+}
+
+.or-divider::before { left: 0; }
+.or-divider::after { right: 0; }
+
+.file-upload-area {
+  margin-bottom: 4px;
+}
+
+.file-label {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  text-align: center;
+  color: var(--accent);
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--bg-secondary);
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.file-label:active {
+  border-color: var(--accent);
+  background: rgba(0, 128, 105, 0.08);
+}
+
 .primary-btn, .secondary-btn {
   display: block;
   width: 100%;

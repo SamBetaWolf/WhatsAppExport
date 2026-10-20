@@ -6,7 +6,8 @@ const state = {
   chatTitle: "Chat",
   originalText: "",
   searchQuery: "",
-  theme: localStorage.getItem("theme") || "light"
+  theme: localStorage.getItem("theme") || "light",
+  mediaFiles: {}   // filename → objectURL
 };
 
 // ========== Utilidades ==========
@@ -66,20 +67,17 @@ function parseWhatsAppExport(text) {
         const [, date, time, sender, content] = match;
         const fullContent = content || "";
 
-        // Detectar si es multimedia
-        const isMedia = /<archivo omitido>|<Multimedia omitido>|<Media omitted>|image omitted|audio omitted|video omitted|sticker omitted|documento omitido|GIF omitido/i.test(fullContent)
-          || fullContent === "imagen omitida"
-          || fullContent === "audio omitido"
-          || fullContent === "video omitido"
-          || fullContent === "sticker omitido";
+        // Detectar multimedia y posible nombre de archivo
+        const mediaInfo = detectMedia(fullContent);
 
         current = {
           date: date.trim(),
           time: time.trim(),
           sender: sender.trim(),
-          content: isMedia ? getMediaPlaceholder(fullContent) : fullContent,
+          content: mediaInfo.isMedia && !mediaInfo.filename ? mediaInfo.placeholder : fullContent,
           isSystem: false,
-          isMedia: isMedia,
+          isMedia: mediaInfo.isMedia,
+          mediaFilename: mediaInfo.filename || null,
           originalLine: line
         };
         matched = true;
@@ -123,7 +121,42 @@ function parseWhatsAppExport(text) {
   return messages;
 }
 
-function getMediaPlaceholder(text) {
+function detectMedia(text) {
+  const t = text.trim();
+
+  // Formato iOS: <attached: 00000013-PHOTO-2024-03-16-09-15-02.jpg>
+  let match = t.match(/<attached:\s*([^>]+)>/i);
+  if (match) {
+    return { isMedia: true, filename: match[1].trim(), placeholder: getPlaceholderFromName(match[1]) };
+  }
+
+  // Formato Android: IMG-20240316-WA0001.jpg (file attached)  o  (archivo adjunto)
+  match = t.match(/^(.+?\.(jpg|jpeg|png|gif|webp|mp4|mov|3gp|opus|m4a|ogg|mp3|pdf|docx?|xlsx?|pptx?|vcf|zip))\s*(\(file attached\)|\(archivo adjunto\))?$/i);
+  if (match) {
+    return { isMedia: true, filename: match[1].trim(), placeholder: getPlaceholderFromName(match[1]) };
+  }
+
+  // Placeholders sin archivo (export sin media)
+  const omitted = /<archivo omitido>|<Multimedia omitido>|<Media omitted>|image omitted|audio omitted|video omitted|sticker omitted|documento omitido|GIF omitido|imagen omitida|audio omitido|video omitido|sticker omitido/i;
+  if (omitted.test(t)) {
+    return { isMedia: true, filename: null, placeholder: getPlaceholderFromText(t) };
+  }
+
+  return { isMedia: false, filename: null, placeholder: null };
+}
+
+function getPlaceholderFromName(filename) {
+  const f = filename.toLowerCase();
+  if (/\.(jpg|jpeg|png|gif|webp)$/.test(f) || f.includes("img-") || f.includes("photo")) return "📷 Foto";
+  if (/\.(opus|m4a|ogg|mp3)$/.test(f) || f.includes("ptt-") || f.includes("audio")) return "🎤 Audio";
+  if (/\.(mp4|mov|3gp)$/.test(f) || f.includes("vid-") || f.includes("video")) return "🎬 Video";
+  if (f.includes("sticker")) return "🏷️ Sticker";
+  if (/\.(pdf|docx?|xlsx?|pptx?)$/.test(f)) return "📄 Documento";
+  if (f.endsWith(".vcf")) return "👤 Contacto";
+  return "📎 Archivo";
+}
+
+function getPlaceholderFromText(text) {
   const t = text.toLowerCase();
   if (t.includes("image") || t.includes("imagen") || t.includes("foto")) return "📷 Foto";
   if (t.includes("audio") || t.includes("ptt") || t.includes("nota de voz")) return "🎤 Audio";
@@ -190,10 +223,57 @@ function renderMessages() {
         div.classList.add("highlight");
       }
 
-      const content = document.createElement("span");
-      content.className = "message-content";
-      content.textContent = msg.content;
-      div.appendChild(content);
+      // Intentar mostrar el archivo multimedia real
+      let mediaShown = false;
+      if (msg.mediaFilename) {
+        const url = state.mediaFiles[msg.mediaFilename] || state.mediaFiles[msg.mediaFilename.toLowerCase()];
+        if (url) {
+          const lower = msg.mediaFilename.toLowerCase();
+          if (/\.(jpg|jpeg|png|gif|webp)$/.test(lower)) {
+            const img = document.createElement("img");
+            img.src = url;
+            img.alt = "Imagen";
+            img.className = "media-image";
+            img.loading = "lazy";
+            img.onclick = () => window.open(url, "_blank");
+            div.appendChild(img);
+            mediaShown = true;
+          } else if (/\.(mp4|mov|3gp)$/.test(lower)) {
+            const video = document.createElement("video");
+            video.src = url;
+            video.controls = true;
+            video.className = "media-video";
+            video.preload = "metadata";
+            div.appendChild(video);
+            mediaShown = true;
+          } else if (/\.(opus|m4a|ogg|mp3)$/.test(lower)) {
+            const audio = document.createElement("audio");
+            audio.src = url;
+            audio.controls = true;
+            audio.className = "media-audio";
+            audio.preload = "metadata";
+            div.appendChild(audio);
+            mediaShown = true;
+          } else {
+            // Documento u otro → enlace de descarga
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = msg.mediaFilename;
+            link.className = "media-file-link";
+            link.textContent = "📄 " + msg.mediaFilename;
+            div.appendChild(link);
+            mediaShown = true;
+          }
+        }
+      }
+
+      // Si no se pudo mostrar el medio, mostrar el texto/placeholder
+      if (!mediaShown) {
+        const content = document.createElement("span");
+        content.className = "message-content";
+        content.textContent = msg.content;
+        div.appendChild(content);
+      }
 
       const time = document.createElement("span");
       time.className = "message-time";
@@ -381,15 +461,26 @@ function initEvents() {
     try {
       let text = "";
 
+      // Limpiar ObjectURLs anteriores para no acumular memoria
+      Object.values(state.mediaFiles).forEach(url => URL.revokeObjectURL(url));
+      state.mediaFiles = {};
+
       if (looksLikeZip) {
-        // Intentamos descomprimir como ZIP
         try {
           const zip = await JSZip.loadAsync(file);
           
           let txtFile = null;
+          const mediaEntries = [];
+
           zip.forEach((relativePath, zipEntry) => {
-            if (!txtFile && relativePath.toLowerCase().endsWith(".txt") && !zipEntry.dir) {
+            if (zipEntry.dir) return;
+            const lower = relativePath.toLowerCase();
+            const baseName = relativePath.split("/").pop(); // por si viene en subcarpeta
+
+            if (!txtFile && lower.endsWith(".txt")) {
               txtFile = zipEntry;
+            } else if (/\.(jpg|jpeg|png|gif|webp|mp4|mov|3gp|opus|m4a|ogg|mp3|pdf|docx?|xlsx?|pptx?|vcf)$/i.test(lower)) {
+              mediaEntries.push({ name: baseName, entry: zipEntry });
             }
           });
 
@@ -400,12 +491,24 @@ function initEvents() {
           }
 
           text = await txtFile.async("string");
+
+          // Extraer medios y crear ObjectURLs
+          for (const { name, entry } of mediaEntries) {
+            try {
+              const blob = await entry.async("blob");
+              state.mediaFiles[name] = URL.createObjectURL(blob);
+              // También guardar sin mayúsculas por si acaso
+              state.mediaFiles[name.toLowerCase()] = state.mediaFiles[name];
+            } catch (mediaErr) {
+              console.warn("No se pudo extraer:", name, mediaErr);
+            }
+          }
+
         } catch (zipErr) {
-          // Si falla el ZIP, intentamos leerlo como texto plano
+          console.warn("No se pudo leer como ZIP, intentando como texto:", zipErr);
           text = await file.text();
         }
       } else {
-        // Archivo de texto normal
         text = await file.text();
       }
 

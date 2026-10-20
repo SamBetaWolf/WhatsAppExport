@@ -368,28 +368,57 @@ function initEvents() {
     processChatText(text);
   };
 
-  // Subir archivo .txt
-  $("file-input").onchange = (e) => {
+  // Subir archivo .txt o .zip
+  $("file-input").onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (!file.name.toLowerCase().endsWith(".txt") && file.type !== "text/plain") {
-      alert("Por favor sube un archivo de texto (.txt)");
+    const name = file.name.toLowerCase();
+    const isZip = name.endsWith(".zip") || file.type === "application/zip" || file.type === "application/x-zip-compressed";
+    const isTxt = name.endsWith(".txt") || file.type === "text/plain";
+
+    if (!isZip && !isTxt) {
+      alert("Por favor sube un archivo .txt o el .zip que exporta WhatsApp");
+      e.target.value = "";
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target.result;
-      $("chat-input").value = text; // también lo ponemos en el textarea por si quiere editarlo
+    try {
+      let text = "";
+
+      if (isZip) {
+        // Descomprimir el ZIP en el navegador
+        const zip = await JSZip.loadAsync(file);
+        
+        // Buscar el primer archivo .txt dentro del ZIP
+        let txtFile = null;
+        zip.forEach((relativePath, zipEntry) => {
+          if (!txtFile && relativePath.toLowerCase().endsWith(".txt") && !zipEntry.dir) {
+            txtFile = zipEntry;
+          }
+        });
+
+        if (!txtFile) {
+          alert("No se encontró ningún archivo .txt dentro del ZIP");
+          e.target.value = "";
+          return;
+        }
+
+        text = await txtFile.async("string");
+      } else {
+        // Archivo .txt normal
+        text = await file.text();
+      }
+
+      $("chat-input").value = text;
       processChatText(text);
-    };
-    reader.onerror = () => {
-      alert("Error al leer el archivo");
-    };
-    reader.readAsText(file, "UTF-8");
-    
-    // Reset para poder subir el mismo archivo otra vez si quiere
+
+    } catch (err) {
+      console.error(err);
+      alert("Error al leer el archivo. Asegúrate de que es un ZIP o TXT válido de WhatsApp.");
+    }
+
+    // Reset para poder subir el mismo archivo otra vez
     e.target.value = "";
   };
 

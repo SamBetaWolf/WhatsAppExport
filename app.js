@@ -33,13 +33,20 @@ function parseWhatsAppExport(text) {
   let current = null;
 
   // Regex principales (ordenados de más específico a más general)
+  // Nota: algunos formatos ponen la HORA primero y la FECHA después
   const patterns = [
+    // [22:28, 10/19/2026] Nombre: mensaje   ← formato hora primero + fecha completa
+    /^\[(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[aApP]\.?[mM]\.?)?),\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\]\s*(.+?):\s*(.*)$/,
+    // [22:28, 10/19/26] Nombre: mensaje
+    /^\[(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[aApP]\.?[mM]\.?)?),\s+(\d{1,2}\/\d{1,2})\]\s*(.+?):\s*(.*)$/,
+
     // [20/10/2024, 10:19:33] Nombre: mensaje
     /^\[(\d{1,2}\/\d{1,2}\/\d{2,4}),?\s+(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[aApP]\.?[mM]\.?)?)\]\s*(.+?):\s*(.*)$/,
     // [20/10/2024 10:19:33] Nombre: mensaje
     /^\[(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[aApP]\.?[mM]\.?)?)\]\s*(.+?):\s*(.*)$/,
     // [20/10, 10:19] Nombre: mensaje  (el más común en español)
     /^\[(\d{1,2}\/\d{1,2}),?\s+(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[aApP]\.?[mM]\.?)?)\]\s*(.+?):\s*(.*)$/,
+
     // 20/10/2024, 10:19 - Nombre: mensaje  (formato antiguo)
     /^(\d{1,2}\/\d{1,2}\/\d{2,4}),?\s+(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[aApP]\.?[mM]\.?)?)\s*-\s*(.+?):\s*(.*)$/,
     // 20/10/24, 10:19 a. m. - Nombre: mensaje
@@ -64,7 +71,23 @@ function parseWhatsAppExport(text) {
         // Guardar mensaje anterior si existe
         if (current) messages.push(current);
 
-        const [, date, time, sender, content] = match;
+        let date, time, sender, content;
+
+        // Detectar si el primer grupo es hora (contiene :) o fecha (contiene /)
+        if (match[1].includes(":")) {
+          // Formato hora primero: [time, date] Name: msg
+          time = match[1];
+          date = match[2];
+          sender = match[3];
+          content = match[4] || "";
+        } else {
+          // Formato fecha primero: [date, time] Name: msg
+          date = match[1];
+          time = match[2];
+          sender = match[3];
+          content = match[4] || "";
+        }
+
         const fullContent = content || "";
 
         // Detectar multimedia y posible nombre de archivo
@@ -130,8 +153,14 @@ function detectMedia(text) {
     return { isMedia: true, filename: match[1].trim(), placeholder: getPlaceholderFromName(match[1]) };
   }
 
-  // Formato Android: IMG-20240316-WA0001.jpg (file attached)  o  (archivo adjunto)
-  match = t.match(/^(.+?\.(jpg|jpeg|png|gif|webp|mp4|mov|3gp|opus|m4a|ogg|mp3|pdf|docx?|xlsx?|pptx?|vcf|zip))\s*(\(file attached\)|\(archivo adjunto\))?$/i);
+  // Formato Android y variantes: nombre de archivo + (file attached) / (archivo adjunto)
+  match = t.match(/([^\s<>"]+\.(jpg|jpeg|png|gif|webp|mp4|mov|3gp|opus|m4a|ogg|mp3|pdf|docx?|xlsx?|pptx?|vcf))\s*(\(file attached\)|\(archivo adjunto\))?/i);
+  if (match) {
+    return { isMedia: true, filename: match[1].trim(), placeholder: getPlaceholderFromName(match[1]) };
+  }
+
+  // Solo el nombre de archivo típico de WhatsApp (IMG-, VID-, PTT-, etc.)
+  match = t.match(/\b((?:IMG|VID|PTT|AUD|AUDIO|PHOTO|STK)-[A-Za-z0-9\-_\.]+\.(jpg|jpeg|png|gif|webp|mp4|mov|3gp|opus|m4a|ogg|mp3))\b/i);
   if (match) {
     return { isMedia: true, filename: match[1].trim(), placeholder: getPlaceholderFromName(match[1]) };
   }
@@ -166,6 +195,33 @@ function getPlaceholderFromText(text) {
   if (t.includes("gif")) return "🎞️ GIF";
   if (t.includes("contacto")) return "👤 Contacto";
   return "📎 Archivo multimedia";
+}
+
+// Buscar URL de media de forma flexible
+function findMediaUrl(filename) {
+  if (!filename || !state.mediaFiles) return null;
+
+  // Coincidencia exacta
+  if (state.mediaFiles[filename]) return state.mediaFiles[filename];
+  if (state.mediaFiles[filename.toLowerCase()]) return state.mediaFiles[filename.toLowerCase()];
+
+  // Buscar por nombre de archivo sin ruta
+  const base = filename.split("/").pop().toLowerCase();
+  for (const key of Object.keys(state.mediaFiles)) {
+    if (key.toLowerCase() === base || key.toLowerCase().endsWith("/" + base)) {
+      return state.mediaFiles[key];
+    }
+  }
+
+  // Coincidencia parcial (por si el nombre en el txt es un poco diferente)
+  for (const key of Object.keys(state.mediaFiles)) {
+    const k = key.toLowerCase();
+    if (k.includes(base) || base.includes(k.split("/").pop())) {
+      return state.mediaFiles[key];
+    }
+  }
+
+  return null;
 }
 
 // ========== Detectar participantes y "yo" ==========
@@ -225,10 +281,10 @@ function renderMessages() {
 
       // Intentar mostrar el archivo multimedia real
       let mediaShown = false;
-      if (msg.mediaFilename) {
-        const url = state.mediaFiles[msg.mediaFilename] || state.mediaFiles[msg.mediaFilename.toLowerCase()];
+      if (msg.mediaFilename || msg.isMedia) {
+        const url = findMediaUrl(msg.mediaFilename);
         if (url) {
-          const lower = msg.mediaFilename.toLowerCase();
+          const lower = (msg.mediaFilename || "").toLowerCase();
           if (/\.(jpg|jpeg|png|gif|webp)$/.test(lower)) {
             const img = document.createElement("img");
             img.src = url;
@@ -258,9 +314,9 @@ function renderMessages() {
             // Documento u otro → enlace de descarga
             const link = document.createElement("a");
             link.href = url;
-            link.download = msg.mediaFilename;
+            link.download = msg.mediaFilename || "archivo";
             link.className = "media-file-link";
-            link.textContent = "📄 " + msg.mediaFilename;
+            link.textContent = "📄 " + (msg.mediaFilename || "Archivo");
             div.appendChild(link);
             mediaShown = true;
           }
@@ -480,7 +536,7 @@ function initEvents() {
             if (!txtFile && lower.endsWith(".txt")) {
               txtFile = zipEntry;
             } else if (/\.(jpg|jpeg|png|gif|webp|mp4|mov|3gp|opus|m4a|ogg|mp3|pdf|docx?|xlsx?|pptx?|vcf)$/i.test(lower)) {
-              mediaEntries.push({ name: baseName, entry: zipEntry });
+              mediaEntries.push({ name: baseName, fullPath: relativePath, entry: zipEntry });
             }
           });
 
@@ -492,17 +548,21 @@ function initEvents() {
 
           text = await txtFile.async("string");
 
-          // Extraer medios y crear ObjectURLs
-          for (const { name, entry } of mediaEntries) {
+          // Extraer medios y crear ObjectURLs (guardar varias variantes del nombre)
+          for (const { name, fullPath, entry } of mediaEntries) {
             try {
               const blob = await entry.async("blob");
-              state.mediaFiles[name] = URL.createObjectURL(blob);
-              // También guardar sin mayúsculas por si acaso
-              state.mediaFiles[name.toLowerCase()] = state.mediaFiles[name];
+              const url = URL.createObjectURL(blob);
+              state.mediaFiles[name] = url;
+              state.mediaFiles[name.toLowerCase()] = url;
+              state.mediaFiles[fullPath] = url;
+              state.mediaFiles[fullPath.toLowerCase()] = url;
             } catch (mediaErr) {
               console.warn("No se pudo extraer:", name, mediaErr);
             }
           }
+
+          console.log("Medios extraídos:", Object.keys(state.mediaFiles).length / 4, "archivos");
 
         } catch (zipErr) {
           console.warn("No se pudo leer como ZIP, intentando como texto:", zipErr);

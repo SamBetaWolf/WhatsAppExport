@@ -224,6 +224,53 @@ function findMediaUrl(filename) {
   return null;
 }
 
+// Detectar mensajes que son respuestas a otros (quotes)
+function detectReplies(messages) {
+  // Guardamos el texto de mensajes anteriores para comparar
+  const previousContents = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.isSystem || !msg.content) {
+      previousContents.push(null);
+      continue;
+    }
+
+    const lines = msg.content.split("\n");
+    if (lines.length < 2) {
+      previousContents.push(msg.content.trim());
+      continue;
+    }
+
+    // La primera línea podría ser el mensaje citado
+    const firstLine = lines[0].trim();
+    const rest = lines.slice(1).join("\n").trim();
+
+    // Buscamos si la primera línea coincide con algún mensaje anterior
+    let matchedQuote = null;
+    let matchedAuthor = null;
+
+    for (let j = previousContents.length - 1; j >= 0; j--) {
+      if (!previousContents[j]) continue;
+      const prev = previousContents[j];
+      // Coincidencia exacta o que el mensaje anterior empiece igual
+      if (prev === firstLine || prev.startsWith(firstLine) || firstLine.startsWith(prev.substring(0, Math.min(40, prev.length)))) {
+        matchedQuote = firstLine;
+        matchedAuthor = messages[j].sender;
+        break;
+      }
+    }
+
+    if (matchedQuote && rest) {
+      msg.quote = matchedQuote;
+      msg.quoteAuthor = matchedAuthor;
+      msg.content = rest;
+    }
+
+    previousContents.push(msg.content.trim());
+  }
+}
+
 // ========== Detectar participantes y "yo" ==========
 function cleanName(name) {
   return (name || "").replace(/\u200e/g, "").replace(/\u200f/g, "").trim();
@@ -279,17 +326,35 @@ function renderMessages() {
         div.classList.add("highlight");
       }
 
+      // Mostrar cita (mensaje respondido) si existe
+      if (msg.quote) {
+        const quoteDiv = document.createElement("div");
+        quoteDiv.className = "message-quote";
+        if (msg.quoteAuthor) {
+          const author = document.createElement("div");
+          author.className = "message-quote-author";
+          author.textContent = msg.quoteAuthor;
+          quoteDiv.appendChild(author);
+        }
+        const quoteText = document.createElement("div");
+        quoteText.textContent = msg.quote;
+        quoteDiv.appendChild(quoteText);
+        div.appendChild(quoteDiv);
+      }
+
       // Intentar mostrar el archivo multimedia real
       let mediaShown = false;
       if (msg.mediaFilename || msg.isMedia) {
         const url = findMediaUrl(msg.mediaFilename);
         if (url) {
           const lower = (msg.mediaFilename || "").toLowerCase();
+          const isSticker = lower.startsWith("stk") || lower.includes("sticker");
+
           if (/\.(jpg|jpeg|png|gif|webp)$/.test(lower)) {
             const img = document.createElement("img");
             img.src = url;
-            img.alt = "Imagen";
-            img.className = "media-image";
+            img.alt = isSticker ? "Sticker" : "Imagen";
+            img.className = "media-image" + (isSticker ? " sticker" : "");
             img.loading = "lazy";
             img.onclick = () => window.open(url, "_blank");
             div.appendChild(img);
@@ -324,7 +389,7 @@ function renderMessages() {
       }
 
       // Si no se pudo mostrar el medio, mostrar el texto/placeholder
-      if (!mediaShown) {
+      if (!mediaShown && msg.content) {
         const content = document.createElement("span");
         content.className = "message-content";
         content.textContent = msg.content;
@@ -480,6 +545,9 @@ function initEvents() {
     state.originalText = text;
     state.messages = parseWhatsAppExport(text);
     
+    // Detectar respuestas (quotes)
+    detectReplies(state.messages);
+
     const analysis = analyzeParticipants(state.messages);
     state.participants = analysis.participants;
     state.me = analysis.me;
@@ -493,6 +561,12 @@ function initEvents() {
     renderMessages();
     showScreen("chat-screen");
   }
+
+  // Botón borrar texto
+  $("clear-btn").onclick = () => {
+    $("chat-input").value = "";
+    $("chat-input").focus();
+  };
 
   // Convertir desde textarea
   $("convert-btn").onclick = () => {
